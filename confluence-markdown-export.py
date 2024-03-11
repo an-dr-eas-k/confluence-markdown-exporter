@@ -2,6 +2,7 @@ import os
 import argparse
 from urllib.parse import urlparse, urlunparse
 
+from attr import dataclass
 import requests
 import bs4
 from markdownify import MarkdownConverter
@@ -15,15 +16,27 @@ DOWNLOAD_CHUNK_SIZE = 4 * 1024 * 1024   # 4MB, since we're single threaded this 
 class ExportException(Exception):
     pass
 
+@dataclass
+class PageMetadata:
+    page_title: str
+    page_id: str
+    child_ids: list
+    content: str
+    extension = ".html"
+    document_name: str
+    sanitized_filename: str
+    sanitized_parent: str
+    page_location: str
+    page_filename: str
+    page_output_dir: str
 
-class Exporter:
-    def __init__(self, url, token, out_dir, space, no_attach):
+class ConfluenceConnection:
+    def __init__(self, url, token, out_dir, space):
         self.__out_dir = out_dir
         self.__parsed_url = urlparse(url)
         self.__token = token
         self.__confluence = Confluence(url=urlunparse(self.__parsed_url), token=self.__token)
         self.__seen = set()
-        self.__no_attach = no_attach
         self.__space = space
 
     def __sanitize_filename(self, document_name_raw):
@@ -36,12 +49,7 @@ class Exporter:
                 document_name = document_name.replace(invalid, "_")
         return document_name
 
-    def __dump_page(self, src_id, parents):
-        if src_id in self.__seen:
-            # this could theoretically happen if Page IDs are not unique or there is a circle
-            raise ExportException("Duplicate Page ID Found!")
-
-        page = self.__confluence.get_page_by_id(src_id, expand="body.storage")
+    def __obtain_page_metadata(self, page, parents) -> PageMetadata:
         page_title = page["title"]
         page_id = page["id"]
     
@@ -69,14 +77,30 @@ class Exporter:
         page_filename = os.path.join(self.__out_dir, *page_location)
 
         page_output_dir = os.path.dirname(page_filename)
-        os.makedirs(page_output_dir, exist_ok=True)
-        print("Saving to {}".format(" / ".join(page_location)))
-        with open(page_filename, "w", encoding="utf-8") as f:
-            f.write(content)
+        return PageMetadata(page_title, page_id, child_ids, content, extension, document_name, sanitized_filename, sanitized_parents, page_location, page_filename, page_output_dir)
+
+class Exporter(ConfluenceConnection):
+    def __init__(self, url, token, out_dir, space, no_attach):
+        super().__init__(url, token, out_dir, space)
+        self.__no_attach = no_attach
+
+
+    def __dump_page(self, src_id, parents):
+        if src_id in self.__seen:
+            # this could theoretically happen if Page IDs are not unique or there is a circle
+            raise ExportException("Duplicate Page ID Found!")
+
+        page = self.__confluence.get_page_by_id(src_id, expand="body.storage")
+        page_meta_data: PageMetadata = super().__obtain_page_metadata(page, parents)
+
+        os.makedirs(page_meta_data.page_output_dir, exist_ok=True)
+        print("Saving to {}".format(" / ".join(page_meta_data.page_location)))
+        with open(page_meta_data.page_filename, "w", encoding="utf-8") as f:
+            f.write(page_meta_data.content)
 
         # fetch attachments unless disabled
         if not self.__no_attach:
-            ret = self.__confluence.get_attachments_from_content(page_id, start=0, limit=500, expand=None,
+            ret = self.__confluence.get_attachments_from_content(page_meta_data.page_id, start=0, limit=500, expand=None,
                                                                  filename=None, media_type=None)
             for i in ret["results"]:
                 att_title = i["title"]
@@ -87,12 +111,12 @@ class Exporter:
                     (self.__parsed_url[0], self.__parsed_url[1], prefix + download.lstrip("/"), None, None, None)
                 )
                 att_sanitized_name = self.__sanitize_filename(att_title)
-                att_filename = os.path.join(page_output_dir, ATTACHMENT_FOLDER_NAME, att_sanitized_name)
+                att_filename = os.path.join(page_meta_data.page_output_dir, ATTACHMENT_FOLDER_NAME, att_sanitized_name)
 
                 att_dirname = os.path.dirname(att_filename)
                 os.makedirs(att_dirname, exist_ok=True)
 
-                print("Saving attachment {} to {}".format(att_title, page_location))
+                print("Saving attachment {} to {}".format(att_title, page_meta_data.page_location))
 
                 r = requests.get(att_url, headers={"Authorization": f"Bearer {self.__token}"}, stream=True)
                 if 400 <= r.status_code:
@@ -107,11 +131,11 @@ class Exporter:
                     for buf in r.iter_content(chunk_size=DOWNLOAD_CHUNK_SIZE):
                         f.write(buf)
 
-        self.__seen.add(page_id)
+        self.__seen.add(page_meta_data.page_id)
     
         # recurse to process child nodes
-        for child_id in child_ids:
-            self.__dump_page(child_id, parents=sanitized_parents + [page_title])
+        for child_id in page_meta_data.child_ids:
+            self.__dump_page(child_id, parents=page_meta_data.sanitized_parents + [page_meta_data.page_title])
 
     def __dump_space(self, space):
         space_key = space["key"]
@@ -200,21 +224,32 @@ class Converter:
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("url", type=str, help="The url to the confluence instance")
-    parser.add_argument("token", type=str, help="The access token to Confluence")
-    parser.add_argument("out_dir", type=str, help="The directory to output the files to")
-    parser.add_argument("--space", type=str, required=False, default=None, help="Spaces to export")
-    parser.add_argument("--skip-attachments", action="store_true", dest="no_attach", required=False,
-                        default=False, help="Skip fetching attachments")
-    parser.add_argument("--no-fetch", action="store_true", dest="no_fetch", required=False,
-                        default=False, help="This option only runs the markdown conversion")
-    args = parser.parse_args()
-    
-    if not args.no_fetch:
-        dumper = Exporter(url=args.url, token=args.token, out_dir=args.out_dir,
-                          space=args.space, no_attach=args.no_attach)
-        dumper.dump()
-    
-    converter = Converter(out_dir=args.out_dir)
-    converter.convert()
+    def main():
+        parser = argparse.ArgumentParser()
+        parser.add_argument("url", type=str, help="The url to the confluence instance")
+        parser.add_argument("token", type=str, help="The access token to Confluence")
+        parser.add_argument("out_dir", type=str, help="The directory to output the files to")
+        parser.add_argument("--space", type=str, required=False, default=None, help="Spaces to export")
+        parser.add_argument("--skip-attachments", action="store_true", dest="no_attach", required=False,
+                            default=False, help="Skip fetching attachments")
+        parser.add_argument("--no-fetch", action="store_true", dest="no_fetch", required=False,
+                            default=False, help="This option only runs the markdown conversion")
+        parser.add_argument("--mark-migrated", action="store_true", dest="mark_migrated", required=False, 
+                            help="Mark pages as migrated when corresponding markdown file in out_dir exists")
+        args = parser.parse_args()
+        
+
+        if args.mark_migrated:
+            # dumper = Marker(url=args.url, token=args.token, out_dir=args.out_dir,
+            #                 space=args.space, mark_migrated=True)
+            return
+
+        if not args.no_fetch:
+            dumper = Exporter(url=args.url, token=args.token, out_dir=args.out_dir,
+                            space=args.space, no_attach=args.no_attach)
+            dumper.dump()
+            
+        converter = Converter(out_dir=args.out_dir)
+        converter.convert()
+
+    main()
