@@ -157,7 +157,7 @@ class Converter:
             elif entry.is_file(follow_symlinks=False):
                 yield entry
             else:
-                raise NotImplemented()
+                raise NotImplementedError
 
     def __convert_atlassian_html(self, soup):
         for image in soup.find_all("ac:image"):
