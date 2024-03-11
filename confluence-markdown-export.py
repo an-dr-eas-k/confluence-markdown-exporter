@@ -1,3 +1,5 @@
+import logging
+import logging.config
 import os
 import argparse
 from urllib.parse import urlparse, urlunparse
@@ -43,9 +45,7 @@ class ConfluenceConnection:
         document_name = document_name_raw
         for invalid in ["..", "/", ">", "<", ":", "\"", "|", "?", "*", "\\"]:
             if invalid in document_name:
-                print("Dangerous page title: \"{}\", \"{}\" found, replacing it with \"_\"".format(
-                    document_name,
-                    invalid))
+                logging.warning("Dangerous page title: %s, %s found, replacing it with \"_\"", document_name, invalid)
                 document_name = document_name.replace(invalid, "_")
         return document_name
 
@@ -58,7 +58,7 @@ class ConfluenceConnection:
         try:
             child_ids = self.__confluence.get_child_id_list(page_id)
         except Exception as _:
-            print ("Error getting child ids for page %s" % page_id)
+            logging.error ("Error getting child ids for page %s", page_id)
     
         content = page["body"]["storage"]["value"]
 
@@ -116,12 +116,12 @@ class Exporter(ConfluenceConnection):
                 att_dirname = os.path.dirname(att_filename)
                 os.makedirs(att_dirname, exist_ok=True)
 
-                print("Saving attachment {} to {}".format(att_title, page_meta_data.page_location))
+            logging.debug("Saving attachment %s to %s", att_title, page_meta_data.page_location)
 
                 r = requests.get(att_url, headers={"Authorization": f"Bearer {self.__token}"}, stream=True)
                 if 400 <= r.status_code:
                     if r.status_code == 404:
-                        print("Attachment {} not found (404)!".format(att_url))
+                    logging.warning("Attachment %s not found (404)!", att_url)
                         continue
 
                     # this is a real error, raise it
@@ -210,7 +210,7 @@ class Converter:
             if not path.endswith(".html"):
                 continue
 
-            print("Converting {}".format(path))
+            logging.info("Converting %s", path)
             with open(path, "r", encoding="utf-8") as f:
                 data = f.read()
 
@@ -224,6 +224,9 @@ class Converter:
 
 
 if __name__ == "__main__":
+    def init_logging():
+        logging.config.fileConfig(os.path.dirname(os.path.abspath(__file__))+'/logging.ini')
+
     def main():
         parser = argparse.ArgumentParser()
         parser.add_argument("url", type=str, help="The url to the confluence instance")
@@ -252,4 +255,5 @@ if __name__ == "__main__":
         converter = Converter(out_dir=args.out_dir)
         converter.convert()
 
+    init_logging()
     main()
