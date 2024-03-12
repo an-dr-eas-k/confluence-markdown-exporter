@@ -48,7 +48,7 @@ class ConfluenceWorker:
         document_name = document_name_raw
         for invalid in ["..", "/", ">", "<", ":", "\"", "|", "?", "*", "\\"]:
             if invalid in document_name:
-                logging.warning("Dangerous page title: %s, %s found, replacing it with \"_\"", document_name, invalid)
+                logging.debug("Dangerous page title: %s, %s found, replacing it with \"_\"", document_name, invalid)
                 document_name = document_name.replace(invalid, "_")
         return document_name
 
