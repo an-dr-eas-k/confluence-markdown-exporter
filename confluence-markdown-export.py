@@ -152,7 +152,7 @@ class Exporter(ConfluenceWorker):
         self.__no_attach = no_attach
 
 
-    def __handle_attachment(self, att_title, download, page_meta_data: PageMetadata):
+    def __handle_attachment(self, page_meta_data: PageMetadata):
         ret = self.confluence.get_attachments_from_content(page_meta_data.page_id, start=0, limit=500, expand=None,
                                                                 filename=None, media_type=None)
         for i in ret["results"]:
@@ -192,8 +192,7 @@ class Exporter(ConfluenceWorker):
 
         # fetch attachments unless disabled
         if not self.__no_attach:
-            self.__handle_attachment(None, None, page_meta_data)
-
+            self.__handle_attachment(page_meta_data)
 
 
 class Converter:
