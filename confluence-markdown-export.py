@@ -126,7 +126,11 @@ class ConfluenceWorker:
         while True:
             logging.debug ("start %s", start)
             ret = self.confluence.get_all_spaces(start=start, limit=limit, expand='description.plain,homepage')
-            if ret['size'] <= 0:
+            try:
+                if ret['size'] <= 0:
+                    break
+            except Exception as e:
+                logging.error("Error getting spaces: %s", e)
                 break
             for space in ret["results"]:
                 if self.space is not None and space["key"] == self.space:
