@@ -194,6 +194,39 @@ class Exporter(ConfluenceWorker):
         if not self.__no_attach:
             self.__handle_attachment(page_meta_data)
 
+class Marker(ConfluenceWorker):
+
+    file_extension = ".md"
+
+    def __init__(self, url, token, out_dir, space, flag_migrated_template):
+        super().__init__(url, token, out_dir, space)
+        with open(flag_migrated_template, "r", encoding="utf-8") as f:
+            self.__flagging_template_content = f.read()
+
+    def flag_page_migrated(self, page_meta_data: PageMetadata):
+
+        new_page_content = self.__flagging_template_content.replace(
+            "<!-- migrated content -->", 
+            page_meta_data.content)
+        logging.info("new page content:\n%s", new_page_content)
+        self.confluence.update_page(
+            page_id=page_meta_data.page_id, 
+            title="%s (migrated)" % page_meta_data.page_title, 
+            body=new_page_content)
+
+    def update_page(self, page_meta_data: PageMetadata):
+        updated_content_md = Converter.convert_file_content(page_meta_data.content)
+        with open(page_meta_data.page_filename, "w", encoding="utf-8") as f:
+            f.write(updated_content_md)
+
+    def page_action(self, page_meta_data: PageMetadata):
+        super().page_action(page_meta_data)
+
+        if os.path.exists(page_meta_data.page_filename):
+            logging.info("Updating %s and flagging as migrated", page_meta_data.page_location)
+            self.update_page(page_meta_data)
+            self.flag_page_migrated(page_meta_data)
+            
 
 class Converter:
     def __init__(self, out_dir):
@@ -265,14 +298,15 @@ if __name__ == "__main__":
                             default=False, help="Skip fetching attachments")
         parser.add_argument("--no-fetch", action="store_true", dest="no_fetch", required=False,
                             default=False, help="This option only runs the markdown conversion")
-        parser.add_argument("--mark-migrated", action="store_true", dest="mark_migrated", required=False, 
-                            help="Mark pages as migrated when corresponding markdown file in out_dir exists")
+        parser.add_argument("--flag-migrated", type=str, default=None, dest="flag_migrated", required=False, 
+                            help="Flag pages as migrated when corresponding markdown file exists in out_dir")
         args = parser.parse_args()
         
 
-        if args.mark_migrated:
-            # dumper = Marker(url=args.url, token=args.token, out_dir=args.out_dir,
-            #                 space=args.space, mark_migrated=True)
+        if args.flag_migrated:
+            marker = Marker(url=args.url, token=args.token, out_dir=args.out_dir,
+                            space=args.space, flag_migrated_template=args.flag_migrated)
+            marker.handle_instance()
             return
 
         if not args.no_fetch:
