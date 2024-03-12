@@ -32,6 +32,9 @@ class PageMetadata:
     page_output_dir: str
 
 class ConfluenceWorker:
+
+    file_extension = ".html"
+
     def __init__(self, url, token, out_dir, space):
         self.__out_dir = out_dir
         self.parsed_url = urlparse(url)
@@ -70,14 +73,13 @@ class ConfluenceWorker:
         content = page["body"]["storage"]["value"]
 
         # save all files as .html for now, we will convert them later
-        extension = ".html"
         if len(child_ids) > 0:
             document_name = "index"
         else:
             document_name = page_title
 
         # make some rudimentary checks, to prevent trivial errors
-        sanitized_filename = self._sanitize_filename(document_name) + extension
+        sanitized_filename = self._sanitize_filename(document_name) + self.file_extension
         sanitized_parents = list(map(self._sanitize_filename, parents))
 
         page_location = sanitized_parents + [sanitized_filename]
