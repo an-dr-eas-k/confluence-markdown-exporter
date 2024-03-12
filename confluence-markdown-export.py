@@ -44,6 +44,12 @@ class ConfluenceWorker:
         self.confluence = Confluence(url=urlunparse(self.parsed_url), token=self.token)
         self.space = space
 
+    def get_page_url(self, suffix = ""):
+        prefix = self.parsed_url.path
+        return urlunparse(
+            (self.parsed_url[0], self.parsed_url[1], prefix + suffix.lstrip("/"), None, None, None)
+        )
+
     def _sanitize_filename(self, document_name_raw):
         document_name = document_name_raw
         for invalid in ["..", "/", ">", "<", ":", "\"", "|", "?", "*", "\\"]:
@@ -153,10 +159,8 @@ class Exporter(ConfluenceWorker):
             att_title = i["title"]
             download = i["_links"]["download"]
 
-            prefix = self.parsed_url.path
-            att_url = urlunparse(
-                (self.parsed_url[0], self.parsed_url[1], prefix + download.lstrip("/"), None, None, None)
-            )
+            att_url = self.get_page_url(download)
+
             att_sanitized_name = self._sanitize_filename(att_title)
             att_filename = os.path.join(page_meta_data.page_output_dir, ATTACHMENT_FOLDER_NAME, att_sanitized_name)
 
