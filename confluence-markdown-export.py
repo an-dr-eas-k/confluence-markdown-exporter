@@ -201,7 +201,7 @@ class Converter:
             else:
                 raise NotImplementedError
 
-    def __convert_atlassian_html(self, soup):
+    def _convert_atlassian_html(soup):
         for image in soup.find_all("ac:image"):
             url = None
             for child in image.children:
@@ -221,6 +221,12 @@ class Converter:
             image.replace_with(imgtag)
         return soup
 
+    def convert_file_content(content: str) -> str:
+        soup_raw = bs4.BeautifulSoup(content, 'html.parser')
+        soup = Converter._convert_atlassian_html(soup_raw)
+
+        return MarkdownConverter().convert_soup(soup)
+
     def convert(self):
         for entry in self.recurse_findfiles(self.__out_dir):
             path = entry.path
@@ -232,10 +238,7 @@ class Converter:
             with open(path, "r", encoding="utf-8") as f:
                 data = f.read()
 
-            soup_raw = bs4.BeautifulSoup(data, 'html.parser')
-            soup = self.__convert_atlassian_html(soup_raw)
-
-            md = MarkdownConverter().convert_soup(soup)
+            md = Converter.convert_file_content(data)
             newname = os.path.splitext(path)[0]
             with open(newname + ".md", "w", encoding="utf-8") as f:
                 f.write(md)
