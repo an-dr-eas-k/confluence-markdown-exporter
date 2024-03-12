@@ -105,7 +105,7 @@ class ConfluenceWorker:
         for child_id in page_meta_data.child_ids:
             self._handle_page(child_id, parents=page_meta_data.sanitized_parents + [page_meta_data.page_title])
 
-    def _handle_space(self, space):
+    def _handle_space(self, space, ignore_space: bool = False):
         space_key = space["key"]
         logging.info("Processing space %s", space_key)
         if space.get("homepage") is None:
@@ -116,7 +116,7 @@ class ConfluenceWorker:
         else:
             # homepage found, recurse from there
             homepage_id = space["homepage"]["id"]
-            self._handle_page(homepage_id, parents=[space_key])
+            self._handle_page(homepage_id, parents=([] if ignore_space else [space_key]))
 
     
     def handle_instance(self):
@@ -130,7 +130,7 @@ class ConfluenceWorker:
                 break
             for space in ret["results"]:
                 if self.space is not None and space["key"] == self.space:
-                    self._handle_space(space)
+                    self._handle_space(space, True)
                     return
                 if self.space is None:
                     self._handle_space(space)
