@@ -191,6 +191,9 @@ class Exporter(ConfluenceWorker):
     def page_action(self, page_meta_data: PageMetadata):
         super().page_action(page_meta_data)
 
+        if len(page_meta_data.content.strip()) <= 1:
+            return
+
         os.makedirs(page_meta_data.page_output_dir, exist_ok=True)
         logging.debug("Saving to %s", "/".join(page_meta_data.page_location))
         with open(page_meta_data.page_filename, "w", encoding="utf-8") as f:
