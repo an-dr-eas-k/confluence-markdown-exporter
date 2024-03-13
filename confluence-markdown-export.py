@@ -1,6 +1,7 @@
 import logging
 import logging.config
 import os
+import re
 import argparse
 from urllib.parse import urlparse, urlunparse
 
@@ -35,14 +36,15 @@ class ConfluenceWorker:
 
     file_extension = ".html"
 
-    def __init__(self, url, token, out_dir, space):
+    def __init__(self, url, token, out_dir, space, ignore_titles: [] = None):
         self.__out_dir = out_dir
         self.parsed_url = urlparse(url)
         self.token = token
+        self.space = space
+        self.ignore_titles = ignore_titles
         self.__seen = set()
 
         self.confluence = Confluence(url=urlunparse(self.parsed_url), token=self.token)
-        self.space = space
 
     def get_page_url(self, suffix = ""):
         prefix = self.parsed_url.path
@@ -105,6 +107,9 @@ class ConfluenceWorker:
         page = self._get_page(src_id)
         page_meta_data: PageMetadata = self._obtain_page_metadata(page, parents)
 
+        if self.ignore_titles and any(re.match(f"{ignored_title.lower()}", page_meta_data.page_title.lower()) for ignored_title in self.ignore_titles):
+            logging.info("Ignoring page: %s", page_meta_data.page_title)
+            return
         self.page_action(page_meta_data)
     
         # recurse to process child nodes
@@ -147,8 +152,8 @@ class ConfluenceWorker:
             start += limit
 
 class Exporter(ConfluenceWorker):
-    def __init__(self, url, token, out_dir, space, no_attach):
-        super().__init__(url, token, out_dir, space)
+    def __init__(self, url, token, out_dir, space, ignore_titles, no_attach):
+        super().__init__(url, token, out_dir, space, ignore_titles)
         self.__no_attach = no_attach
 
 
@@ -300,8 +305,11 @@ if __name__ == "__main__":
                             default=False, help="This option only runs the markdown conversion")
         parser.add_argument("--flag-migrated", type=str, default=None, dest="flag_migrated", required=False, 
                             help="Flag pages as migrated when corresponding markdown file exists in out_dir")
+        parser.add_argument("--ignore-titles", type=str, default=None, dest="ignore_titles", required=False, 
+                            help="list a set of re patterns, comma separated, to ignore pages with these titles including their children")
         args = parser.parse_args()
         
+        args.ignore_titles = [title.strip().lower() for title in (args.ignore_titles.split(",") if args.ignore_titles else [])]
 
         if args.flag_migrated:
             marker = Marker(url=args.url, token=args.token, out_dir=args.out_dir,
@@ -311,7 +319,7 @@ if __name__ == "__main__":
 
         if not args.no_fetch:
             exporter = Exporter(url=args.url, token=args.token, out_dir=args.out_dir,
-                            space=args.space, no_attach=args.no_attach)
+                            space=args.space, ignore_titles=args.ignore_titles, no_attach=args.no_attach)
             exporter.handle_instance()
             
         converter = Converter(out_dir=args.out_dir)
