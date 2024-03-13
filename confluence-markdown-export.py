@@ -81,14 +81,15 @@ class ConfluenceWorker:
         content = page["body"]["storage"]["value"]
 
         # save all files as .html for now, we will convert them later
+        document_name = page_title
+        sanitized_parents = list(map(self._sanitize_filename, parents))
+
         if len(child_ids) > 0:
             document_name = "index"
-        else:
-            document_name = page_title
+            sanitized_parents = list(map(self._sanitize_filename, parents+[page_title]))
 
         # make some rudimentary checks, to prevent trivial errors
         sanitized_filename = self._sanitize_filename(document_name) + self.file_extension
-        sanitized_parents = list(map(self._sanitize_filename, parents))
 
         page_location = sanitized_parents + [sanitized_filename]
         page_filename = os.path.join(self.__out_dir, *page_location)
@@ -114,7 +115,7 @@ class ConfluenceWorker:
     
         # recurse to process child nodes
         for child_id in page_meta_data.child_ids:
-            self._handle_page(child_id, parents=page_meta_data.sanitized_parents + [page_meta_data.page_title])
+            self._handle_page(child_id, parents=page_meta_data.sanitized_parents)
 
     def _handle_space(self, space, ignore_space: bool = False):
         space_key = space["key"]
