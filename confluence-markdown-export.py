@@ -240,6 +240,7 @@ class Marker(ConfluenceWorker):
 class Converter:
     def __init__(self, out_dir):
         self.__out_dir = out_dir
+        self.__target_files = self.get_file_base(self.__out_dir)
 
     def recurse_findfiles(self, path):
         for entry in os.scandir(path):
@@ -250,10 +251,40 @@ class Converter:
             else:
                 raise NotImplementedError
 
-    def _convert_atlassian_html(soup):
+    def _convert_atlassian_html(self, soup: bs4.BeautifulSoup, file_path) -> bs4.BeautifulSoup:
+        soup = Converter._convert_atlassian_image(soup)
+        if file_path is not None and self.__target_files is not None:
+            soup = Converter._convert_atlassian_link(soup, file_path, self.__target_files)
+        return soup
+
+    def _convert_atlassian_link(soup: bs4.BeautifulSoup, file_path, file_base):
+        for link in soup.find_all("ac:link"):
+            content_title = None
+            try:
+                content_title = link.find_all("ri:page")[0].get('ri:content-title')
+            except Exception as _:
+                pass
+
+            if content_title is None:
+                continue
+
+            pattern = f"{content_title}(.{{1,2}}index|.(md|html))"
+            link_url = next((x for x in file_base if re.search(pattern, x)), None)
+            if link_url is None:
+                continue
+
+            rel_path = os.path.relpath(link_url, file_path)
+            link_tag = soup.new_tag("a", attrs={"href": rel_path})
+            link_tag.string = content_title
+
+            link.insert_after(soup.new_tag("br"))
+            link.replace_with(link_tag)
+        return soup
+
+    def _convert_atlassian_image(soup):
         for image in soup.find_all("ac:image"):
             url = None
-            for child in image.children:
+            for child in [tag for tag in image.children if type(tag) == bs4.element.Tag]:
                 url = child.get("ri:filename", None)
                 break
 
@@ -270,27 +301,46 @@ class Converter:
             image.replace_with(imgtag)
         return soup
 
-    def convert_file_content(content: str) -> str:
+    def convert_file_content(self, content: str, file_path = None) -> str:
         soup_raw = bs4.BeautifulSoup(content, 'html.parser')
-        soup = Converter._convert_atlassian_html(soup_raw)
+        soup: bs4.BeautifulSoup = self._convert_atlassian_html(soup_raw, file_path)
 
-        return MarkdownConverter().convert_soup(soup)
+        try:
+            adjusted_file = file_path + ".adjusted.htm"
+            with open(adjusted_file, "w", encoding="utf-8") as f:
+                f.write(soup.prettify())
+        except Exception as _:
+            logging.warning("Could not write adjusted HTML to file %s, skipping", adjusted_file)
+            pass
 
-    def convert(self):
+        return MarkdownConverter(keep_inline_images_in=["td", "table", "tr", "p", "div", "tbody"]).convert_soup(soup)
+
+    def get_file_base(self, path):
+        target_files = set()
         for entry in self.recurse_findfiles(self.__out_dir):
             path = entry.path
 
-            if not path.endswith(".html"):
+            if not path.endswith(".html") and not path.endswith(".md"):
                 continue
 
-            logging.info("Converting %s", path)
-            with open(path, "r", encoding="utf-8") as f:
-                data = f.read()
+            target_files.add(path)
 
-            md = Converter.convert_file_content(data)
-            newname = os.path.splitext(path)[0]
-            with open(newname + ".md", "w", encoding="utf-8") as f:
-                f.write(md)
+        return target_files
+
+    def convert(self):
+
+        for path in [x for x in self.__target_files if x.endswith(".html")]:
+            self.convert_file(path)
+
+    def convert_file(self, path):
+        logging.debug("Converting %s", path)
+        with open(path, "r", encoding="utf-8") as f:
+            data = f.read()
+
+        md = self.convert_file_content(data, path)
+        newname = os.path.splitext(path)[0]
+        with open(newname + ".md", "w", encoding="utf-8") as f:
+            f.write(md)
 
 
 if __name__ == "__main__":
