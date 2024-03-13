@@ -55,15 +55,16 @@ class Exporter:
         content = page["body"]["storage"]["value"]
 
         # save all files as .html for now, we will convert them later
+        document_name = page_title
+        sanitized_parents = list(map(self._sanitize_filename, parents))
+
         extension = ".html"
         if len(child_ids) > 0:
             document_name = "index"
-        else:
-            document_name = page_title
+            sanitized_parents = list(map(self._sanitize_filename, parents+[page_title]))
 
         # make some rudimentary checks, to prevent trivial errors
-        sanitized_filename = self.__sanitize_filename(document_name) + extension
-        sanitized_parents = list(map(self.__sanitize_filename, parents))
+        sanitized_filename = self._sanitize_filename(document_name) + extension
 
         page_location = sanitized_parents + [sanitized_filename]
         page_filename = os.path.join(self.__out_dir, *page_location)
@@ -111,7 +112,7 @@ class Exporter:
     
         # recurse to process child nodes
         for child_id in child_ids:
-            self.__dump_page(child_id, parents=sanitized_parents + [page_title])
+            self.__dump_page(child_id, parents=sanitized_parents)
 
     def __dump_space(self, space):
         space_key = space["key"]
