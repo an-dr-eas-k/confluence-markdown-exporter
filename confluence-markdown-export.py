@@ -120,17 +120,20 @@ class Converter:
 
     def _preprocess_skipped_tags(self, soup: bs4.BeautifulSoup, skipped_items: list) -> bs4.BeautifulSoup:
 
-        def tag_repl(soup: bs4.BeautifulSoup, item_content) -> bs4.Tag:
+        def tag_repl(soup: bs4.BeautifulSoup, item_content: bs4.Tag) -> bs4.Tag:
             tag = soup.new_tag("div", attrs={"class": "skipped"})
             tag.string = SKIPPED_PLACEHOLDER
+            
+            if item_content.name == "span":
+                item_content.attrs["style"] = "color: #004a77"
+
             skipped_items.append(item_content)
             return tag
 
         def items_to_skip(tag: bs4.Tag):
-            return tag.name in ['ul', 'ol'] and tag.find_parent('table') is not None
-            # return False \
-            #     or tag.name in ['ul', 'ol'] and tag.find_parent('table') is not None \
-            #     or tag.name == 'span' and tag.attrs.get("style")
+            return False \
+                or tag.name in ['ul', 'ol'] and tag.find_parent('table') is not None \
+                or tag.name == 'span' and tag.attrs.get("style") and "color" in tag.attrs.get("style")
 
         return Converter._convert_atlassian( \
             soup=soup, \
@@ -178,7 +181,7 @@ class Converter:
             with open(adjusted_file, "w", encoding="utf-8") as f:
                 f.write(soup.prettify())
         except Exception as _:
-            logging.warning("Could not write adjusted HTML to file %s, skipping", adjusted_file)
+            logging.debug("Could not write adjusted HTML to file %s, skipping", adjusted_file)
             pass
 
     def get_file_base(self, path):
