@@ -70,7 +70,11 @@ class Converter:
                 link_name = None \
                     and item_content.find("ac:plain-text-body") and item_content.find("ac:plain-text-body").text \
                     or item_content.get("ri:filename")
-                link_url = os.path.join(ATTACHMENT_FOLDER_NAME, item_content.get("ri:filename")).replace(" ", "%20")
+                link_url = os.path.join(ATTACHMENT_FOLDER_NAME, item_content.get("ri:filename")).replace(" ", "-")
+
+            elif item_content.name == "ri:url":
+                link_name = item_content.get("ri:value")
+                link_url = item_content.get("ri:value")
 
             if link_name is None:
                 return None
@@ -81,8 +85,8 @@ class Converter:
 
         return Converter._convert_atlassian( \
             soup=soup, \
-            list_finder=lambda soup: soup.find_all("ac:link"), \
-            item_finder=lambda list_item: list_item.find("ri:page") or list_item.find("ri:attachment"), \
+            list_finder=lambda soup: soup.find_all("ac:link") + soup.find_all("ac:structured-macro") , \
+            item_finder=lambda list_item: list_item.find("ri:page") or list_item.find("ri:attachment") or list_item.find("ri:url"), \
             tag_replacement=tag_repl
         )
 
@@ -90,7 +94,7 @@ class Converter:
         def tag_repl(soup: bs4.BeautifulSoup, item_content) -> bs4.Tag:
             srcurl = None
             if item_content.name == "ri:attachment":
-                srcurl = os.path.join(ATTACHMENT_FOLDER_NAME, item_content.get("ri:filename")).replace(" ", "%20")
+                srcurl = os.path.join(ATTACHMENT_FOLDER_NAME, item_content.get("ri:filename")).replace(" ", "-")
             if item_content.name == "ri:url":
                 srcurl = item_content.get("ri:value")
             if srcurl is None:
