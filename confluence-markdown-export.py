@@ -306,11 +306,9 @@ class ConfluenceWorker:
         page = self._get_page(src_id)
         page_meta_data: PageMetadata = self._obtain_page_metadata(page, parents)
 
-        if False \
-            or True \
-                and self.ignore_titles \
-                and any(re.match(f"{ignored_title.lower()}", page_meta_data.page_title.lower()) for ignored_title in self.ignore_titles) \
-            or len(page_meta_data.content) < 20:
+        if True \
+            and self.ignore_titles \
+            and any(re.match(f"{ignored_title.lower()}", page_meta_data.page_title.lower()) for ignored_title in self.ignore_titles):
             logging.info("Ignoring page: %s", page_meta_data.page_title)
             return
         self.page_action(page_meta_data)
@@ -393,15 +391,12 @@ class Exporter(ConfluenceWorker):
     def page_action(self, page_meta_data: PageMetadata):
         super().page_action(page_meta_data)
 
-        if len(page_meta_data.content.strip()) <= 1:
-            return
+        if len(page_meta_data.content.strip()) > 20:
+            os.makedirs(page_meta_data.page_output_dir, exist_ok=True)
+            logging.debug("Saving to %s", "/".join(page_meta_data.page_location))
+            with open(page_meta_data.page_filename, "w", encoding="utf-8") as f:
+                f.write(page_meta_data.content)
 
-        os.makedirs(page_meta_data.page_output_dir, exist_ok=True)
-        logging.debug("Saving to %s", "/".join(page_meta_data.page_location))
-        with open(page_meta_data.page_filename, "w", encoding="utf-8") as f:
-            f.write(page_meta_data.content)
-
-        # fetch attachments unless disabled
         if not self.__no_attach:
             self.__handle_attachment(page_meta_data)
 
