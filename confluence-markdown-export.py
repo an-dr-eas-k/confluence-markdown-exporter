@@ -76,7 +76,6 @@ class Converter:
             link_tag.string = link_name
             return link_tag
 
-
         return Converter._convert_atlassian( \
             soup=soup, \
             list_finder=lambda soup: soup.find_all("ac:link"), \
@@ -93,7 +92,11 @@ class Converter:
                 srcurl = item_content.get("ri:value")
             if srcurl is None:
                 return None
-            return soup.new_tag("img", attrs={"src": srcurl, "alt": srcurl})
+            outer = soup.new_tag("div")
+            outer.append(soup.new_tag("img", attrs={"src": srcurl, "alt": srcurl}))
+            outer.append(soup.new_tag("br"))
+            return outer
+            
 
         return Converter._convert_atlassian( \
             soup=soup, \
@@ -147,7 +150,6 @@ class Converter:
             if replacement_tag is None:
                 continue
 
-            list_item.insert_after(soup.new_tag("br"))
             list_item.replace_with(replacement_tag)
         return soup
 
