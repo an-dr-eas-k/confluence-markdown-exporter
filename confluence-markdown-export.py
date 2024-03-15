@@ -16,6 +16,7 @@ ATTACHMENT_FOLDER_NAME = "attachments"
 INDEX_FILE_NAME = "readme"
 SKIP_TAGS = "custom:skip"
 SKIPPED_PLACEHOLDER = "CUSTOMSKIPPEDCONTENT"
+ADO_STYLE = "color: #004a77"
 DOWNLOAD_CHUNK_SIZE = 4 * 1024 * 1024   # 4MB, since we're single threaded this is safe to raise much higher
 
 
@@ -124,10 +125,13 @@ class Converter:
 
         def tag_repl(soup: bs4.BeautifulSoup, item_content: bs4.Tag) -> bs4.Tag:
             tag = soup.new_tag("div", attrs={"class": "skipped"})
-            tag.string = SKIPPED_PLACEHOLDER
+            tag.string = self.compute_skipped_pattern(len(skipped_items))
             
             if item_content.name == "span":
-                item_content.attrs["style"] = "color: #004a77"
+                item_content.attrs = {"style": ADO_STYLE}
+                for child in list(item_content.descendants):
+                    if child and child.name == "span":
+                        child.unwrap()
 
             skipped_items.append(item_content)
             return tag
@@ -152,15 +156,20 @@ class Converter:
                 continue
 
             replacement_tag = tag_replacement(soup, item_content)
-            if replacement_tag is None:
+            if replacement_tag is None or list_item.parent is None:
                 continue
 
             list_item.replace_with(replacement_tag)
         return soup
+    
+    def compute_skipped_pattern(self, index):
+        return f"{SKIPPED_PLACEHOLDER} {index} {SKIPPED_PLACEHOLDER}"
 
     def _postprocess_skipped_tags(self, md: str, skipped_items: list[bs4.Tag]) -> str:
-        for skipped_item in skipped_items:
-            md = md.replace(SKIPPED_PLACEHOLDER, skipped_item.prettify().replace("\n", ""), 1)
+        for index, skipped_item in enumerate(skipped_items): 
+            md = md.replace(self.compute_skipped_pattern(index), skipped_item.prettify().replace("\n", ""), 1)
+        if SKIPPED_PLACEHOLDER in md:
+            logging.warning("Some skipped items were not replaced in the markdown, this is a bug!")
         return md
 
     def convert_file_content(self, content: str, file_path = None) -> str:
@@ -174,8 +183,18 @@ class Converter:
         self._save_adjusted_html(soup, file_path)
 
         md: str = MarkdownConverter(keep_inline_images_in=["td", "table", "tr", "p", "div", "tbody"]).convert_soup(soup)
+        self._save_adjusted_md(md, file_path)
         md = self._postprocess_skipped_tags(md, skipped_list)
         return md
+
+    def _save_adjusted_md(self, md: str, file_path):
+        try:
+            adjusted_file = file_path + ".adjusted.md"
+            with open(adjusted_file, "w", encoding="utf-8") as f:
+                f.write(md)
+        except Exception as _:
+            logging.debug("Could not write adjusted md to file %s, skipping", adjusted_file)
+            pass
 
     def _save_adjusted_html(self, soup: bs4.BeautifulSoup, file_path):
         try:
