@@ -14,6 +14,8 @@ from atlassian import Confluence
 
 ATTACHMENT_FOLDER_NAME = "attachments"
 INDEX_FILE_NAME = "readme"
+SKIP_TAGS = "custom:skip"
+SKIPPED_PLACEHOLDER = "CUSTOMSKIPPEDCONTENT"
 DOWNLOAD_CHUNK_SIZE = 4 * 1024 * 1024   # 4MB, since we're single threaded this is safe to raise much higher
 
 
@@ -113,6 +115,27 @@ class Converter:
             tag_replacement=tag_repl
         )
 
+    def _preprocess_skipped_tags(self, soup: bs4.BeautifulSoup, skipped_items: list) -> bs4.BeautifulSoup:
+
+        def tag_repl(soup: bs4.BeautifulSoup, item_content) -> bs4.Tag:
+            tag = soup.new_tag("div", attrs={"class": "skipped"})
+            tag.string = SKIPPED_PLACEHOLDER
+            skipped_items.append(item_content)
+            return tag
+
+        def items_to_skip(tag: bs4.Tag):
+            return tag.name in ['ul', 'ol'] and tag.find_parent('table') is not None
+            # return False \
+            #     or tag.name in ['ul', 'ol'] and tag.find_parent('table') is not None \
+            #     or tag.name == 'span' and tag.attrs.get("style")
+
+        return Converter._convert_atlassian( \
+            soup=soup, \
+            list_finder=lambda soup: soup.find_all(items_to_skip),
+            item_finder=lambda list_item: list_item, \
+            tag_replacement=tag_repl
+        )
+
     def _convert_atlassian(soup: bs4.BeautifulSoup, list_finder, item_finder, tag_replacement) -> bs4.BeautifulSoup:
         for list_item in list_finder(soup):
             item_content = item_finder(list_item)
@@ -128,10 +151,26 @@ class Converter:
             list_item.replace_with(replacement_tag)
         return soup
 
-    def convert_file_content(self, content: str, file_path = None) -> str:
-        soup_raw = bs4.BeautifulSoup(content, 'html.parser')
-        soup: bs4.BeautifulSoup = self._convert_atlassian_html(soup_raw, file_path)
+    def _postprocess_skipped_tags(self, md: str, skipped_items: list[bs4.Tag]) -> str:
+        for skipped_item in skipped_items:
+            md = md.replace(SKIPPED_PLACEHOLDER, skipped_item.prettify().replace("\n", ""), 1)
+        return md
 
+    def convert_file_content(self, content: str, file_path = None) -> str:
+        soup = bs4.BeautifulSoup(content, 'html.parser')
+
+        skipped_list = list()
+        soup: bs4.BeautifulSoup = self._preprocess_skipped_tags(soup, skipped_list)
+
+        soup: bs4.BeautifulSoup = self._convert_atlassian_html(soup, file_path)
+
+        self._save_adjusted_html(soup, file_path)
+
+        md: str = MarkdownConverter(keep_inline_images_in=["td", "table", "tr", "p", "div", "tbody"]).convert_soup(soup)
+        md = self._postprocess_skipped_tags(md, skipped_list)
+        return md
+
+    def _save_adjusted_html(self, soup: bs4.BeautifulSoup, file_path):
         try:
             adjusted_file = file_path + ".adjusted.htm"
             with open(adjusted_file, "w", encoding="utf-8") as f:
@@ -139,8 +178,6 @@ class Converter:
         except Exception as _:
             logging.warning("Could not write adjusted HTML to file %s, skipping", adjusted_file)
             pass
-
-        return MarkdownConverter(keep_inline_images_in=["td", "table", "tr", "p", "div", "tbody"]).convert_soup(soup)
 
     def get_file_base(self, path):
         target_files = set()
