@@ -36,6 +36,7 @@ class Converter:
 
     def _convert_atlassian_html(self, soup: bs4.BeautifulSoup, file_path) -> bs4.BeautifulSoup:
         soup = Converter._convert_atlassian_image(soup)
+        soup = Converter._convert_atlassian_code(soup)
         if file_path is not None and self.__target_files is not None:
             soup = Converter._convert_atlassian_link(soup, file_path, self.__target_files)
         return soup
@@ -96,6 +97,19 @@ class Converter:
             soup=soup, \
             list_finder=lambda soup: soup.find_all("ac:image"), \
             item_finder=lambda list_item: list_item.find("ri:attachment", None) or list_item.find("ri:url", None), \
+            tag_replacement=tag_repl
+        )
+
+    def _convert_atlassian_code(soup: bs4.BeautifulSoup) -> bs4.BeautifulSoup:
+        def tag_repl(soup: bs4.BeautifulSoup, item_content) -> bs4.Tag:
+            tag = soup.new_tag("pre")
+            tag.string = item_content
+            return tag
+
+        return Converter._convert_atlassian( \
+            soup=soup, \
+            list_finder=lambda soup: soup.find_all("ac:structured-macro", attrs={"ac:name": "code"}), \
+            item_finder=lambda list_item: list_item.find("ac:plain-text-body").text, \
             tag_replacement=tag_repl
         )
 
