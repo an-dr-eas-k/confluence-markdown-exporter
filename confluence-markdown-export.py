@@ -45,24 +45,26 @@ class Converter:
 
     def _convert_atlassian_link(soup: bs4.BeautifulSoup, file_path: str, file_base):
         def tag_repl(soup: bs4.BeautifulSoup, item_content) -> bs4.Tag:
+
             link_name = None
             link_url = None
+
             if item_content.name == "ri:page":
-                referenced_document = item_content.get("ri:content-title")
-                link_name = True \
+                referenced_document: str = item_content.get("ri:content-title").replace(" ", "-").replace("&amp;", "&")
+                link_name: str = True \
                     and item_content.parent.find("ac:plain-text-link-body") and item_content.parent.find("ac:plain-text-link-body").text \
                     or item_content.get("ri:content-title")
-                pattern = f"\\\\{re.escape(referenced_document)}([/\\\\]{INDEX_FILE_NAME})?\\.(md|html)$"
+
+                pattern = f"\\\\{re.escape(referenced_document)}([/\\\\]{INDEX_FILE_NAME})?\\.html$"
                 matches = [x for x in file_base if re.search(pattern, x)]
-                if "Run Client tech" in file_path:
-                    print()
-                if len(matches) > 2:
+                if len(matches) > 1:
                     logging.warning("%s: Ambiguous link name: %s, found multiple matches: %s", file_path, link_name, matches)
                 link_url = matches[0] if len(matches) > 0 else None
                 link_url = link_url and os.path.relpath(link_url, os.path.dirname(file_path)) \
-                    .replace(" ", "%20") \
+                    .replace(" ", "-") \
                     .replace("\\", "/") \
                     .replace(".html", ".md")
+
             elif item_content.name == "ri:attachment":
                 link_name = None \
                     and item_content.find("ac:plain-text-body") and item_content.find("ac:plain-text-body").text \
@@ -189,7 +191,7 @@ class Converter:
         for entry in self.recurse_findfiles(self.__out_dir):
             path = entry.path
 
-            if not path.endswith(".html") and not path.endswith(".md"):
+            if not path.endswith(".html"):
                 continue
 
             target_files.add(path)
@@ -254,7 +256,7 @@ class ConfluenceWorker:
             if invalid in document_name:
                 logging.debug("Dangerous page title: %s, %s found, replacing it with \"_\"", document_name, invalid)
                 document_name = document_name.replace(invalid, "_")
-        return document_name
+        return document_name.replace(" ", "-")
 
     def _get_page(self, src_id):
         if src_id in self.__seen:
