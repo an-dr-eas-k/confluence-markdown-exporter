@@ -13,6 +13,7 @@ from atlassian import Confluence
 
 
 ATTACHMENT_FOLDER_NAME = "attachments"
+INDEX_FILE_NAME = "readme"
 DOWNLOAD_CHUNK_SIZE = 4 * 1024 * 1024   # 4MB, since we're single threaded this is safe to raise much higher
 
 
@@ -39,48 +40,78 @@ class Converter:
             soup = Converter._convert_atlassian_link(soup, file_path, self.__target_files)
         return soup
 
-    def _convert_atlassian_link(soup: bs4.BeautifulSoup, file_path, file_base):
-        for link in soup.find_all("ac:link"):
-            content_title = None
-            try:
-                content_title = link.find_all("ri:page")[0].get('ri:content-title')
-            except Exception as _:
-                pass
+    def _convert_atlassian_link(soup: bs4.BeautifulSoup, file_path: str, file_base):
+        def tag_repl(soup: bs4.BeautifulSoup, item_content) -> bs4.Tag:
+            link_name = None
+            link_url = None
+            if item_content.name == "ri:page":
+                referenced_document = item_content.get("ri:content-title")
+                link_name = True \
+                    and item_content.parent.find("ac:plain-text-link-body") and item_content.parent.find("ac:plain-text-link-body").text \
+                    or item_content.get("ri:content-title")
+                pattern = f"\\\\{re.escape(referenced_document)}([/\\\\]{INDEX_FILE_NAME})?\\.(md|html)$"
+                matches = [x for x in file_base if re.search(pattern, x)]
+                if "Run Client tech" in file_path:
+                    print()
+                if len(matches) > 2:
+                    logging.warning("%s: Ambiguous link name: %s, found multiple matches: %s", file_path, link_name, matches)
+                link_url = matches[0] if len(matches) > 0 else None
+                link_url = link_url and os.path.relpath(link_url, os.path.dirname(file_path)) \
+                    .replace(" ", "%20") \
+                    .replace("\\", "/") \
+                    .replace(".html", ".md")
+            elif item_content.name == "ri:attachment":
+                link_name = None \
+                    and item_content.find("ac:plain-text-body") and item_content.find("ac:plain-text-body").text \
+                    or item_content.get("ri:filename")
+                link_url = os.path.join(ATTACHMENT_FOLDER_NAME, item_content.get("ri:filename")).replace(" ", "%20")
 
-            if content_title is None:
-                continue
+            if link_name is None:
+                return None
 
-            pattern = f"{content_title}(.{{1,2}}index|.(md|html))"
-            link_url = next((x for x in file_base if re.search(pattern, x)), None)
-            if link_url is None:
-                continue
+            link_tag = soup.new_tag("a", attrs={"href": link_url})
+            link_tag.string = link_name
+            return link_tag
 
-            rel_path = os.path.relpath(link_url, file_path)
-            link_tag = soup.new_tag("a", attrs={"href": rel_path})
-            link_tag.string = content_title
 
-            link.insert_after(soup.new_tag("br"))
-            link.replace_with(link_tag)
-        return soup
+        return Converter._convert_atlassian( \
+            soup=soup, \
+            list_finder=lambda soup: soup.find_all("ac:link"), \
+            item_finder=lambda list_item: list_item.find("ri:page") or list_item.find("ri:attachment"), \
+            tag_replacement=tag_repl
+        )
 
     def _convert_atlassian_image(soup):
-        for image in soup.find_all("ac:image"):
-            url = None
-            for child in [tag for tag in image.children if type(tag) == bs4.element.Tag]:
-                url = child.get("ri:filename", None)
-                break
+        def tag_repl(soup: bs4.BeautifulSoup, item_content) -> bs4.Tag:
+            srcurl = None
+            if item_content.name == "ri:attachment":
+                srcurl = os.path.join(ATTACHMENT_FOLDER_NAME, item_content.get("ri:filename")).replace(" ", "%20")
+            if item_content.name == "ri:url":
+                srcurl = item_content.get("ri:value")
+            if srcurl is None:
+                return None
+            return soup.new_tag("img", attrs={"src": srcurl, "alt": srcurl})
 
-            if url is None:
-                # no url found for ac:image
+        return Converter._convert_atlassian( \
+            soup=soup, \
+            list_finder=lambda soup: soup.find_all("ac:image"), \
+            item_finder=lambda list_item: list_item.find("ri:attachment", None) or list_item.find("ri:url", None), \
+            tag_replacement=tag_repl
+        )
+
+    def _convert_atlassian(soup: bs4.BeautifulSoup, list_finder, item_finder, tag_replacement) -> bs4.BeautifulSoup:
+        for list_item in list_finder(soup):
+            item_content = item_finder(list_item)
+
+            if item_content is None:
                 continue
 
-            # construct new, actually valid HTML tag
-            srcurl = os.path.join(ATTACHMENT_FOLDER_NAME, url)
-            imgtag = soup.new_tag("img", attrs={"src": srcurl, "alt": srcurl})
+            replacement_tag = tag_replacement(soup, item_content)
+            if replacement_tag is None:
+                continue
 
-            # insert a linebreak after the original "ac:image" tag, then replace with an actual img tag
-            image.insert_after(soup.new_tag("br"))
-            image.replace_with(imgtag)
+            list_item.insert_after(soup.new_tag("br"))
+            list_item.replace_with(replacement_tag)
         return soup
 
     def convert_file_content(self, content: str, file_path = None) -> str:
@@ -116,6 +147,9 @@ class Converter:
 
     def convert_file(self, path):
         logging.debug("Converting %s", path)
+        
+        if not os.path.exists(path):
+            return
         with open(path, "r", encoding="utf-8") as f:
             data = f.read()
 
@@ -191,7 +225,7 @@ class ConfluenceWorker:
         sanitized_parents = list(map(self._sanitize_filename, parents))
 
         if len(child_ids) > 0:
-            document_name = "index"
+            document_name = INDEX_FILE_NAME
             sanitized_parents = list(map(self._sanitize_filename, parents+[page_title]))
 
         # make some rudimentary checks, to prevent trivial errors
